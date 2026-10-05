@@ -39,7 +39,6 @@ export default function BranchManagementPage({
   onSaveBranchSuspension,
   deletedBranches = [],
   onRestoreBranch,
-  onRestoreDefaultBranches,
   onPermanentDeleteBranch,
   onSaveBranchNotes
 }) {
@@ -734,31 +733,6 @@ Terima kasih atas kerja sama dan dedikasinya.`
                   </p>
                 </div>
               )}
-
-              {/* Opsi Pulihkan 6 Cabang Default MBG Magelang */}
-              <div className="p-3.5 bg-blue-50/70 rounded-xl border border-blue-100 flex items-center justify-between gap-3 text-xs">
-                <div>
-                  <span className="font-bold text-blue-900 block">
-                    Pulihkan Cabang Default Resmi MBG Magelang
-                  </span>
-                  <span className="text-[11px] text-blue-700 block mt-0.5">
-                    Kembalikan template 6 cabang resmi (Mertoyudan, Borobudur, Muntilan, Tengah, Secang, Mungkid).
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (confirm('Pulihkan cabang-cabang default MBG Magelang yang belum ada?')) {
-                      if (onRestoreDefaultBranches) {
-                        onRestoreDefaultBranches();
-                      }
-                    }
-                  }}
-                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-blue-700 hover:bg-blue-600 hover:text-white border border-blue-200 shadow-xs transition shrink-0 cursor-pointer"
-                >
-                  Restore Default
-                </button>
-              </div>
             </div>
 
             <div className="flex items-center justify-end pt-3 border-t border-slate-100">

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, FileSpreadsheet, Building2, Plus, KeyRound, LogOut, UserCheck } from 'lucide-react';
+import { LayoutDashboard, FileSpreadsheet, Building2, Plus, KeyRound, LogOut, UserCheck, Clock } from 'lucide-react';
 import logoBgn from '../assets/logo-bgn.png';
 
 export default function Navbar({ 
@@ -109,6 +109,10 @@ export default function Navbar({
                       <p className="text-[11px] text-slate-400">
                         @{adminSession?.username || 'user'}
                       </p>
+                      <div className="mt-1.5 flex items-center space-x-1.5 text-[10px] text-blue-700 bg-blue-50 border border-blue-100 px-2 py-1 rounded-lg font-medium">
+                        <Clock className="w-3 h-3 text-blue-600 shrink-0" />
+                        <span>Sesi Maks. 1 Jam • Auto-Update</span>
+                      </div>
                     </div>
 
                     <button

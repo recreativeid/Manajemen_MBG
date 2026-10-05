@@ -30,13 +30,19 @@ import {
   permanentDeleteBranch,
   saveBranchNotes
 } from './lib/storageService';
-import { checkIsLoggedIn, getAdminSession, logoutAdmin } from './lib/authService';
+import { 
+  checkIsLoggedIn, 
+  getAdminSession, 
+  logoutAdmin, 
+  getAndClearSessionExpiredNotice 
+} from './lib/authService';
 import { MONTH_NAMES } from './lib/initialData';
 
 export default function App() {
-  // Autentikasi Admin MBG
+  // Autentikasi Admin MBG & Pengaturan Maksimal Sesi 1 Jam
   const [isAuthenticated, setIsAuthenticated] = useState(() => checkIsLoggedIn());
   const [adminSession, setAdminSession] = useState(() => getAdminSession());
+  const [sessionNotice, setSessionNotice] = useState(() => getAndClearSessionExpiredNotice());
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   const [activeTab, setActiveTab] = useState('recap'); // Kelola Rekap Pembayaran langsung terbuka
@@ -87,14 +93,72 @@ export default function App() {
     }
   }, [selectedYear, selectedMonth, isAuthenticated]);
 
+  // Watcher batas waktu login maksimal 1 jam & auto-logout aman
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Cek batas sesi maksimal 1 jam setiap 10 detik
+    const sessionTimer = setInterval(() => {
+      const isValid = checkIsLoggedIn();
+      if (!isValid) {
+        const notice = getAndClearSessionExpiredNotice();
+        setSessionNotice(
+          notice ||
+          'Sesi login Anda telah mencapai batas maksimal 1 jam dan otomatis keluar demi keamanan. Seluruh data telah otomatis tersimpan aman (auto-update). Silakan login kembali.'
+        );
+        setIsAuthenticated(false);
+        setAdminSession(null);
+      }
+    }, 10000);
+
+    // Auto-update sinkronisasi data berkala setiap 30 detik agar selalu mutakhir
+    const autoUpdateTimer = setInterval(() => {
+      if (checkIsLoggedIn()) {
+        fetchData();
+      }
+    }, 30000);
+
+    // Cek status sesi & auto update saat user kembali ke tab browser
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        const isValid = checkIsLoggedIn();
+        if (!isValid) {
+          const notice = getAndClearSessionExpiredNotice();
+          setSessionNotice(
+            notice ||
+            'Sesi login Anda telah mencapai batas maksimal 1 jam dan otomatis keluar demi keamanan. Seluruh data telah otomatis tersimpan aman (auto-update). Silakan login kembali.'
+          );
+          setIsAuthenticated(false);
+          setAdminSession(null);
+        } else {
+          // Auto update data rekapan saat kembali aktif
+          fetchData();
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    return () => {
+      clearInterval(sessionTimer);
+      clearInterval(autoUpdateTimer);
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+    };
+  }, [isAuthenticated, selectedYear, selectedMonth]);
+
   // Handle Login & Logout
   const handleLoginSuccess = (session) => {
+    setSessionNotice(null);
     setIsAuthenticated(true);
     setAdminSession(session);
+    fetchData();
   };
 
   const handleLogout = () => {
-    logoutAdmin();
+    logoutAdmin(false);
+    setSessionNotice(null);
     setIsAuthenticated(false);
     setAdminSession(null);
   };
@@ -249,7 +313,7 @@ export default function App() {
 
   // Jika belum login, tampilkan layar login admin
   if (!isAuthenticated) {
-    return <LoginPage onLoginSuccess={handleLoginSuccess} />;
+    return <LoginPage onLoginSuccess={handleLoginSuccess} initialNotice={sessionNotice} />;
   }
 
   return (
@@ -291,7 +355,6 @@ export default function App() {
             onSaveBranchSuspension={handleSaveBranchSuspension}
             deletedBranches={deletedBranches}
             onRestoreBranch={handleRestoreBranch}
-            onRestoreDefaultBranches={handleRestoreDefaultBranches}
             onPermanentDeleteBranch={handlePermanentDeleteBranch}
             onSaveBranchNotes={handleSaveBranchNotes}
           />

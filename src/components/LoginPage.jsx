@@ -1,13 +1,14 @@
-import React, { useState } from 'react';
-import { Lock, User, Eye, EyeOff, ArrowRight } from 'lucide-react';
-import { loginAdmin } from '../lib/authService';
+import React, { useState, useEffect } from 'react';
+import { Lock, User, Eye, EyeOff, ArrowRight, Clock, ShieldCheck } from 'lucide-react';
+import { loginAdmin, getAndClearSessionExpiredNotice } from '../lib/authService';
 import logoBgn from '../assets/logo-bgn.png';
 
-export default function LoginPage({ onLoginSuccess }) {
+export default function LoginPage({ onLoginSuccess, initialNotice = null }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [sessionNotice, setSessionNotice] = useState(() => initialNotice || getAndClearSessionExpiredNotice());
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = (e) => {
@@ -51,6 +52,23 @@ export default function LoginPage({ onLoginSuccess }) {
           {/* Form Login */}
           <form onSubmit={handleSubmit} className="space-y-4">
             
+            {/* Notifikasi Sesi Maksimal 1 Jam Berakhir */}
+            {sessionNotice && (
+              <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 text-amber-900 text-xs">
+                <div className="flex items-start space-x-2.5">
+                  <Clock className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-bold text-amber-900">
+                      Sesi Login Berakhir (Maksimal 1 Jam)
+                    </p>
+                    <p className="text-[11px] text-amber-800 mt-0.5 leading-relaxed">
+                      {sessionNotice}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Error Banner */}
             {errorMsg && (
               <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center space-x-2">
