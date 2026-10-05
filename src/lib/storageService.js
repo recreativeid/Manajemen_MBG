@@ -4,49 +4,43 @@ import { INITIAL_BRANCHES, generatePeriodsForMonth } from './initialData';
 const STORAGE_KEYS = {
   BRANCHES: 'mbg_magelang_branches',
   PERIOD_CONFIGS: 'mbg_magelang_period_configs',
-  PAYMENTS: 'mbg_magelang_daily_payments_v2'
+  PAYMENTS: 'mbg_magelang_daily_payments_v2',
+  BRANCH_SPECIAL_DAYS: 'mbg_magelang_branch_special_days',
+  DATE_NOTES: 'mbg_magelang_date_notes',
+  DELETED_BRANCHES: 'mbg_magelang_deleted_branches'
 };
 
-// Anchor date untuk siklus berkesinambungan 14-hari (Continuous Rolling 14-Day Cycle)
-// Dimulai 1 Oktober 2026:
-// Siklus 1: 01 Okt 2026 - 14 Okt 2026
-// Siklus 2: 15 Okt 2026 - 28 Okt 2026
-// Siklus 3: 29 Okt 2026 - 11 Nov 2026 (Bersambung ke bulan berikutnya!)
-// Siklus 4: 12 Nov 2026 - 25 Nov 2026, dst.
-const ANCHOR_DATE = new Date(2026, 9, 1); // 1 Okt 2026 (month is 0-indexed: 9 = Oktober)
+// Helper memeriksa apakah cabang sedang disuspend pada tanggal tertentu
+export function isBranchSuspendedOnDate(branch, dateStr) {
+  if (!branch) return null;
 
-export function getContinuousCycleInfo(dateObj) {
-  const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
-  const diffTime = d.getTime() - ANCHOR_DATE.getTime();
-  let diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-  
-  // Selalu mulai dari Periode 1 (Oktober 2026), tidak boleh ada Periode 0 atau negatif
-  if (diffDays < 0) {
-    diffDays = 0;
+  // Cek konfigurasi suspend tunggal
+  if (branch.suspension && branch.suspension.isSuspended) {
+    const s = branch.suspension;
+    if (s.type === 'permanent') {
+      if (!s.startDate || dateStr >= s.startDate) return s;
+    } else {
+      if (s.startDate && s.endDate && dateStr >= s.startDate && dateStr <= s.endDate) {
+        return s;
+      }
+    }
   }
-  
-  const cycleIndex = Math.max(0, Math.floor(diffDays / 14));
-  const dayInCycle = ((diffDays % 14) + 14) % 14 + 1; // 1 s/d 14
-  
-  const cycleStart = new Date(ANCHOR_DATE.getTime() + cycleIndex * 14 * 24 * 60 * 60 * 1000);
-  const cycleEnd = new Date(cycleStart.getTime() + 13 * 24 * 60 * 60 * 1000);
 
-  const formatDate = (date) => {
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-  };
+  // Cek jika ada riwayat suspensions array
+  if (Array.isArray(branch.suspensions)) {
+    for (const s of branch.suspensions) {
+      if (!s.isSuspended) continue;
+      if (s.type === 'permanent') {
+        if (!s.startDate || dateStr >= s.startDate) return s;
+      } else {
+        if (s.startDate && s.endDate && dateStr >= s.startDate && dateStr <= s.endDate) {
+          return s;
+        }
+      }
+    }
+  }
 
-  const formatShort = (date) => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-    return `${date.getDate()} ${months[date.getMonth()]}`;
-  };
-
-  return {
-    cycleNumber: Math.max(1, cycleIndex + 1),
-    dayInCycle,
-    cycleStartDate: formatDate(cycleStart),
-    cycleEndDate: formatDate(cycleEnd),
-    cycleLabel: `${formatShort(cycleStart)} - ${formatShort(cycleEnd)}`
-  };
+  return null;
 }
 
 // Helper LocalStorage
@@ -101,9 +95,10 @@ function initLocalStorage() {
 initLocalStorage();
 
 // ==========================================
-// 1. CABANG (BRANCHES)
+// 1. CABANG (BRANCHES) & SUSPENSI
 // ==========================================
 export async function getBranches() {
+  const localBranches = getLocalItem(STORAGE_KEYS.BRANCHES, INITIAL_BRANCHES);
   if (isSupabaseConfigured) {
     try {
       const { data, error } = await supabase
@@ -111,21 +106,26 @@ export async function getBranches() {
         .select('*')
         .order('created_at', { ascending: true });
       if (!error && data && data.length > 0) {
-        return data.map(b => ({
-          id: b.id,
-          name: b.name,
-          pic_name: b.pic_name,
-          phone_wa: b.phone_wa,
-          daily_deposit: Number(b.daily_deposit),
-          is_active: b.is_active,
-          address: b.address
-        }));
+        return data.map(b => {
+          const localB = localBranches.find(lb => lb.id === b.id) || {};
+          return {
+            id: b.id,
+            name: b.name,
+            pic_name: b.pic_name,
+            phone_wa: b.phone_wa,
+            daily_deposit: Number(b.daily_deposit),
+            is_active: b.is_active,
+            address: b.address,
+            suspension: b.suspension || localB.suspension || null,
+            suspensions: b.suspensions || localB.suspensions || []
+          };
+        });
       }
     } catch (err) {
       console.warn('Supabase fetch branches fallback to local', err);
     }
   }
-  return getLocalItem(STORAGE_KEYS.BRANCHES, INITIAL_BRANCHES);
+  return localBranches;
 }
 
 export async function saveBranch(branch) {
@@ -137,7 +137,8 @@ export async function saveBranch(branch) {
     const newBranch = {
       ...branch,
       id: 'branch-' + Date.now(),
-      is_active: true
+      is_active: true,
+      suspension: null
     };
     updated = [...localBranches, newBranch];
   }
@@ -175,8 +176,21 @@ export async function saveBranch(branch) {
 
 export async function deleteBranch(branchId) {
   const localBranches = getLocalItem(STORAGE_KEYS.BRANCHES, INITIAL_BRANCHES);
+  const branchToDelete = localBranches.find(b => b.id === branchId);
   const filtered = localBranches.filter(b => b.id !== branchId);
   setLocalItem(STORAGE_KEYS.BRANCHES, filtered);
+
+  if (branchToDelete) {
+    const deletedBranches = getLocalItem(STORAGE_KEYS.DELETED_BRANCHES, []);
+    const updatedDeleted = [
+      ...deletedBranches.filter(b => b.id !== branchId),
+      {
+        ...branchToDelete,
+        deletedAt: new Date().toISOString()
+      }
+    ];
+    setLocalItem(STORAGE_KEYS.DELETED_BRANCHES, updatedDeleted);
+  }
 
   if (isSupabaseConfigured && !branchId.startsWith('branch-')) {
     try {
@@ -186,6 +200,296 @@ export async function deleteBranch(branchId) {
     }
   }
   return filtered;
+}
+
+// Mengambil seluruh daftar cabang yang terhapus (untuk fitur restore)
+export async function getDeletedBranches() {
+  return getLocalItem(STORAGE_KEYS.DELETED_BRANCHES, []);
+}
+
+// Memulihkan cabang yang sebelumnya terhapus kembali ke daftar cabang aktif
+export async function restoreBranch(branchId) {
+  const deletedBranches = getLocalItem(STORAGE_KEYS.DELETED_BRANCHES, []);
+  let branchToRestore = deletedBranches.find(b => b.id === branchId);
+
+  // Jika tidak ada di deletedBranches, cek di INITIAL_BRANCHES (template awal)
+  if (!branchToRestore) {
+    branchToRestore = INITIAL_BRANCHES.find(b => b.id === branchId);
+  }
+
+  if (!branchToRestore) return null;
+
+  const localBranches = getLocalItem(STORAGE_KEYS.BRANCHES, INITIAL_BRANCHES);
+  const { deletedAt, ...cleanBranch } = branchToRestore;
+  const updatedBranches = [...localBranches.filter(b => b.id !== branchId), cleanBranch];
+  const updatedDeleted = deletedBranches.filter(b => b.id !== branchId);
+
+  setLocalItem(STORAGE_KEYS.BRANCHES, updatedBranches);
+  setLocalItem(STORAGE_KEYS.DELETED_BRANCHES, updatedDeleted);
+
+  return updatedBranches;
+}
+
+// Memulihkan seluruh cabang default template awal (MBG Magelang 6 Cabang) jika ada yang hilang
+export async function restoreDefaultBranches() {
+  const localBranches = getLocalItem(STORAGE_KEYS.BRANCHES, INITIAL_BRANCHES);
+  const existingIds = new Set(localBranches.map(b => b.id));
+  const missingDefaults = INITIAL_BRANCHES.filter(b => !existingIds.has(b.id));
+
+  const updatedBranches = [...localBranches, ...missingDefaults];
+  setLocalItem(STORAGE_KEYS.BRANCHES, updatedBranches);
+
+  const deletedBranches = getLocalItem(STORAGE_KEYS.DELETED_BRANCHES, []);
+  const restoredIds = new Set(missingDefaults.map(b => b.id));
+  const updatedDeleted = deletedBranches.filter(b => !restoredIds.has(b.id));
+  setLocalItem(STORAGE_KEYS.DELETED_BRANCHES, updatedDeleted);
+
+  return updatedBranches;
+}
+
+// Menghapus cabang secara permanen dari riwayat sampah
+export async function permanentDeleteBranch(branchId) {
+  const deletedBranches = getLocalItem(STORAGE_KEYS.DELETED_BRANCHES, []);
+  const updatedDeleted = deletedBranches.filter(b => b.id !== branchId);
+  setLocalItem(STORAGE_KEYS.DELETED_BRANCHES, updatedDeleted);
+  return updatedDeleted;
+}
+
+// Simpan catatan khusus cabang (branch notes)
+export async function saveBranchNotes({ branchId, notes }) {
+  const localBranches = getLocalItem(STORAGE_KEYS.BRANCHES, INITIAL_BRANCHES);
+  const updated = localBranches.map(b => {
+    if (b.id === branchId) {
+      return {
+        ...b,
+        notes: (notes || '').trim()
+      };
+    }
+    return b;
+  });
+  setLocalItem(STORAGE_KEYS.BRANCHES, updated);
+  return updated;
+}
+
+// Atur status Suspend Cabang (Warna Biru Tua)
+// type: 'range' (rentang tanggal startDate s/d endDate) atau 'permanent' (selamanya mulai startDate)
+export async function saveBranchSuspension({ branchId, isSuspended = true, type = 'range', startDate, endDate, reason = '' }) {
+  const localBranches = getLocalItem(STORAGE_KEYS.BRANCHES, INITIAL_BRANCHES);
+  const updated = localBranches.map(b => {
+    if (b.id === branchId) {
+      const suspension = isSuspended ? {
+        isSuspended: true,
+        type: type || 'permanent',
+        startDate: startDate || new Date().toISOString().split('T')[0],
+        endDate: type === 'permanent' ? null : endDate,
+        reason: reason || 'Cabang disuspend sementara',
+        updatedAt: new Date().toISOString()
+      } : null;
+
+      return {
+        ...b,
+        suspension
+      };
+    }
+    return b;
+  });
+
+  setLocalItem(STORAGE_KEYS.BRANCHES, updated);
+  return updated;
+}
+
+export async function removeBranchSuspension(branchId) {
+  return saveBranchSuspension({ branchId, isSuspended: false });
+}
+
+// ==========================================
+// 1B. TANDA KHUSUS CABANG (WARNA UNGU)
+// Untuk cabang tertentu yang tutup 1 hari / bencana / libur khusus cabang
+// ==========================================
+export async function getBranchSpecialDays() {
+  return getLocalItem(STORAGE_KEYS.BRANCH_SPECIAL_DAYS, []);
+}
+
+export async function saveBranchSpecialDay({ branchId, dateStr, type = 'tutup', reason = '' }) {
+  const specialDays = getLocalItem(STORAGE_KEYS.BRANCH_SPECIAL_DAYS, []);
+  const existingIdx = specialDays.findIndex(s => s.branchId === branchId && s.dateStr === dateStr);
+
+  const newEntry = {
+    id: `spec-${branchId}-${dateStr}`,
+    branchId,
+    dateStr,
+    type: type || 'tutup', // 'tutup' | 'bencana' | 'libur' | 'lainnya'
+    reason: reason || 'Tutup / Bencana / Libur Khusus',
+    updatedAt: new Date().toISOString()
+  };
+
+  let updated;
+  if (existingIdx >= 0) {
+    updated = specialDays.map((s, idx) => idx === existingIdx ? newEntry : s);
+  } else {
+    updated = [...specialDays, newEntry];
+  }
+
+  setLocalItem(STORAGE_KEYS.BRANCH_SPECIAL_DAYS, updated);
+  return updated;
+}
+
+export async function deleteBranchSpecialDay({ branchId, dateStr }) {
+  const specialDays = getLocalItem(STORAGE_KEYS.BRANCH_SPECIAL_DAYS, []);
+  const filtered = specialDays.filter(s => !(s.branchId === branchId && s.dateStr === dateStr));
+  setLocalItem(STORAGE_KEYS.BRANCH_SPECIAL_DAYS, filtered);
+  return filtered;
+}
+
+// ==========================================
+// 1C. FITUR TANDAI TANGGAL (COLOR MARKING MODE)
+// Mode:
+// - 'BLUE': Sudah Setor (Setoran Penuh) -> Menjadikan sel warna BIRU
+// - 'YELLOW': Belum Bayar -> Menjadikan sel warna KUNING (Otomatis/Manual)
+// - 'PURPLE': Khusus Cabang (Tutup / Bencana / Libur Cabang) -> Menjadikan sel warna UNGU
+// - 'DARK_BLUE': Suspend Cabang pada tanggal tertentu -> Menjadikan sel warna BIRU TUA
+// - 'RESET': Mengembalikan ke setelan awal (menghapus tanda/setoran)
+// ==========================================
+export async function setBranchDateColor({ branchId, dateStr, colorMode, dailyDeposit }) {
+  const allPayments = getLocalItem(STORAGE_KEYS.PAYMENTS, []);
+  const specialDays = getLocalItem(STORAGE_KEYS.BRANCH_SPECIAL_DAYS, []);
+
+  const paymentIdx = allPayments.findIndex(p => p.branchId === branchId && p.date === dateStr);
+  const specialIdx = specialDays.findIndex(s => s.branchId === branchId && s.dateStr === dateStr);
+
+  let updatedPayments = [...allPayments];
+  let updatedSpecialDays = [...specialDays];
+
+  if (colorMode === 'BLUE') {
+    // 1. Bersihkan specialDays untuk tanggal ini agar tidak tertutup ungu/suspend/kuning
+    if (specialIdx >= 0) {
+      updatedSpecialDays = updatedSpecialDays.filter((_, idx) => idx !== specialIdx);
+    }
+    // 2. Setor penuh (Biru)
+    if (paymentIdx >= 0) {
+      updatedPayments[paymentIdx] = {
+        ...updatedPayments[paymentIdx],
+        amount: Number(dailyDeposit || updatedPayments[paymentIdx].amount || 0)
+      };
+    } else {
+      updatedPayments.push({
+        id: `pay-${branchId}-${dateStr}-${Date.now()}`,
+        branchId,
+        date: dateStr,
+        amount: Number(dailyDeposit || 0),
+        paymentMethod: 'Transfer Bank',
+        notes: 'Setoran harian'
+      });
+    }
+  } else if (colorMode === 'DARK_BLUE') {
+    // 1. Hapus payment jika ada agar tidak terhitung setor
+    if (paymentIdx >= 0) {
+      updatedPayments = updatedPayments.filter((_, idx) => idx !== paymentIdx);
+    }
+    // 2. Tandai Suspend (Biru Tua)
+    const suspendEntry = {
+      id: `spec-${branchId}-${dateStr}`,
+      branchId,
+      dateStr,
+      type: 'suspend',
+      reason: 'Cabang Suspend',
+      updatedAt: new Date().toISOString()
+    };
+    if (specialIdx >= 0) {
+      updatedSpecialDays[specialIdx] = suspendEntry;
+    } else {
+      updatedSpecialDays.push(suspendEntry);
+    }
+  } else if (colorMode === 'PURPLE') {
+    // 1. Hapus payment jika ada
+    if (paymentIdx >= 0) {
+      updatedPayments = updatedPayments.filter((_, idx) => idx !== paymentIdx);
+    }
+    // 2. Tandai Khusus Cabang / Tutup / Bencana (Ungu)
+    const purpleEntry = {
+      id: `spec-${branchId}-${dateStr}`,
+      branchId,
+      dateStr,
+      type: 'tutup',
+      reason: 'Tutup / Bencana / Khusus Cabang',
+      updatedAt: new Date().toISOString()
+    };
+    if (specialIdx >= 0) {
+      updatedSpecialDays[specialIdx] = purpleEntry;
+    } else {
+      updatedSpecialDays.push(purpleEntry);
+    }
+  } else if (colorMode === 'YELLOW') {
+    // 1. Hapus payment jika ada (agar belum bayar)
+    if (paymentIdx >= 0) {
+      updatedPayments = updatedPayments.filter((_, idx) => idx !== paymentIdx);
+    }
+    // 2. Tandai manual Belum Bayar (Kuning)
+    const yellowEntry = {
+      id: `spec-${branchId}-${dateStr}`,
+      branchId,
+      dateStr,
+      type: 'kuning',
+      reason: 'Belum Bayar (Tunggakan)',
+      updatedAt: new Date().toISOString()
+    };
+    if (specialIdx >= 0) {
+      updatedSpecialDays[specialIdx] = yellowEntry;
+    } else {
+      updatedSpecialDays.push(yellowEntry);
+    }
+  } else if (colorMode === 'RESET') {
+    // Reset/Hapus tanda & setoran
+    if (paymentIdx >= 0) {
+      updatedPayments = updatedPayments.filter((_, idx) => idx !== paymentIdx);
+    }
+    if (specialIdx >= 0) {
+      updatedSpecialDays = updatedSpecialDays.filter((_, idx) => idx !== specialIdx);
+    }
+  }
+
+  setLocalItem(STORAGE_KEYS.PAYMENTS, updatedPayments);
+  setLocalItem(STORAGE_KEYS.BRANCH_SPECIAL_DAYS, updatedSpecialDays);
+
+  return { updatedPayments, updatedSpecialDays };
+}
+
+// ==========================================
+// 1D. CATATAN TANGGAL KHUSUS (DATE NOTES)
+// ==========================================
+export async function getDateNotes() {
+  return getLocalItem(STORAGE_KEYS.DATE_NOTES, []);
+}
+
+export async function saveDateNote({ branchId, dateStr, note }) {
+  const allNotes = getLocalItem(STORAGE_KEYS.DATE_NOTES, []);
+  const cleanNote = (note || '').trim();
+  const existingIdx = allNotes.findIndex(n => n.branchId === branchId && n.dateStr === dateStr);
+
+  let updated;
+  if (!cleanNote) {
+    updated = allNotes.filter(n => !(n.branchId === branchId && n.dateStr === dateStr));
+  } else if (existingIdx >= 0) {
+    updated = allNotes.map((n, idx) => idx === existingIdx ? {
+      ...n,
+      note: cleanNote,
+      updatedAt: new Date().toISOString()
+    } : n);
+  } else {
+    updated = [
+      ...allNotes,
+      {
+        id: `note-${branchId}-${dateStr}-${Date.now()}`,
+        branchId,
+        dateStr,
+        note: cleanNote,
+        updatedAt: new Date().toISOString()
+      }
+    ];
+  }
+
+  setLocalItem(STORAGE_KEYS.DATE_NOTES, updated);
+  return updated;
 }
 
 // ==========================================
@@ -314,12 +618,22 @@ export async function quickFillWorkingDaysForBranch(branchId, dates, dailyDeposi
 }
 
 // ==========================================
-// 4. MATRIX LENGKAP 1 BULAN & SIKLUS 14 HARI
+// 4. MATRIX LENGKAP 1 BULAN PENUH
+// Menghilangkan batasan periode & Oktober 2026
+// Mendukung status:
+// - Biru: Sudah Setor (PAID)
+// - Kuning: Belum Bayar (OVERDUE - Otomatis aktif jika tanggal lewat & belum setor)
+// - Biru Tua: Suspend Cabang (SUSPENDED - Manual rentang tgl / selamanya)
+// - Ungu: Khusus Cabang Ini (SPECIAL_CLOSED - Tutup 1 hari / bencana / libur cabang)
+// - Merah: Libur Umum (HOLIDAY)
+// - Putih: Mendatang (UPCOMING)
 // ==========================================
 export async function getFullMonthMatrixData(year, month) {
   const branches = await getBranches();
   const holidayConfig = await getMonthHolidayConfig(year, month);
   const allPayments = await getAllPayments();
+  const specialDays = await getBranchSpecialDays();
+  const dateNotes = await getDateNotes();
 
   const daysInMonth = new Date(year, month, 0).getDate();
   const activeBranches = branches.filter(b => b.is_active);
@@ -327,9 +641,11 @@ export async function getFullMonthMatrixData(year, month) {
   const weeklyHolidays = holidayConfig.weeklyHolidays || [0];
   const customHolidays = holidayConfig.customHolidays || [];
 
-  // Bangun struktur hari 1 s/d daysInMonth
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  // Bangun struktur hari 1 s/d daysInMonth (Satu layer 1 bulan penuh)
   const daysList = [];
-  const cyclesMap = {}; // Mengelompokkan kolom berdasarkan Siklus 14 Hari
   let totalMonthWorkingDays = 0;
   let totalMonthHolidays = 0;
 
@@ -348,21 +664,6 @@ export async function getFullMonthMatrixData(year, month) {
       totalMonthWorkingDays++;
     }
 
-    const cycleInfo = getContinuousCycleInfo(dateObj);
-
-    // Grouping siklus
-    if (!cyclesMap[cycleInfo.cycleNumber]) {
-      cyclesMap[cycleInfo.cycleNumber] = {
-        cycleNumber: cycleInfo.cycleNumber,
-        label: cycleInfo.cycleLabel,
-        cycleStartDate: cycleInfo.cycleStartDate,
-        cycleEndDate: cycleInfo.cycleEndDate,
-        days: []
-      };
-    }
-    cyclesMap[cycleInfo.cycleNumber].days.push(day);
-
-    const now = new Date();
     const isToday = now.getFullYear() === year && (now.getMonth() + 1) === month && now.getDate() === day;
 
     daysList.push({
@@ -370,8 +671,7 @@ export async function getFullMonthMatrixData(year, month) {
       dateStr,
       dayOfWeek,
       isHoliday,
-      isToday,
-      cycleInfo
+      isToday
     });
   }
 
@@ -381,45 +681,91 @@ export async function getFullMonthMatrixData(year, month) {
     let branchWorkingDaysBilled = 0;
     let paidWorkingDaysCount = 0;
     const unpaidWorkingDates = [];
+    const overdueDates = [];
 
     const dailyEntries = daysList.map(d => {
       const payment = allPayments.find(p => p.branchId === branch.id && p.date === d.dateStr);
       const isPaid = Boolean(payment && payment.amount > 0);
       const amount = payment ? Number(payment.amount) : 0;
 
-      if (!d.isHoliday) {
+      // Catatan tanggal
+      const noteEntry = dateNotes.find(n => n.branchId === branch.id && n.dateStr === d.dateStr);
+      const note = noteEntry ? noteEntry.note : (payment?.notes && payment.notes !== 'Setoran harian' && payment.notes !== 'Setoran harian otomatis' ? payment.notes : '');
+      const hasNote = Boolean(note && note.trim());
+
+      // 1. Cek Libur Umum (Merah)
+      const isHoliday = d.isHoliday;
+
+      // 2. Cek Suspend Cabang (Biru Tua) - bisa dari konfigurasi cabang atau tanda tanggal spesifik
+      const branchSuspension = isBranchSuspendedOnDate(branch, d.dateStr);
+      const specialDay = specialDays.find(s => s.branchId === branch.id && s.dateStr === d.dateStr);
+      const isPerDateSuspend = Boolean(specialDay && specialDay.type === 'suspend');
+      const isSuspended = Boolean(branchSuspension || isPerDateSuspend);
+      const suspensionInfo = branchSuspension || (isPerDateSuspend ? { isSuspended: true, reason: specialDay.reason || 'Suspend Cabang' } : null);
+
+      // 3. Cek Agenda khusus: Tutup 1 Hari / Bencana / Libur Cabang (Ungu)
+      const isSpecialClosed = Boolean(specialDay && specialDay.type !== 'suspend' && specialDay.type !== 'kuning');
+
+      // 4. Cek Tanda Manual Belum Bayar (Kuning)
+      const isManualOverdue = Boolean(specialDay && specialDay.type === 'kuning');
+
+      // Hari kerja aktif yang wajib disetor oleh cabang ini
+      const isBranchWorkingDay = !isHoliday && !isSuspended && !isSpecialClosed;
+
+      // Belum Bayar (Kuning): Otomatis aktif jika tanggal lewat/hari ini dan belum setor, ATAU ditandai manual kuning
+      const isOverdue = (isBranchWorkingDay && !isPaid && (d.dateStr <= todayStr)) || isManualOverdue;
+
+      let status = 'UPCOMING';
+      if (isSuspended) {
+        status = 'SUSPENDED'; // Biru Tua
+      } else if (isSpecialClosed) {
+        status = 'SPECIAL_CLOSED'; // Ungu (Agenda khusus)
+      } else if (isPaid) {
+        status = amount >= branch.daily_deposit ? 'PAID' : 'PARTIAL'; // Biru
+      } else if (isHoliday) {
+        status = 'HOLIDAY'; // Merah
+      } else if (isOverdue) {
+        status = 'OVERDUE'; // Kuning (Otomatis & Manual)
+      } else {
+        status = 'UPCOMING'; // Putih
+      }
+
+      if (isBranchWorkingDay) {
         branchWorkingDaysBilled++;
         if (isPaid) {
           paidWorkingDaysCount++;
         } else {
           unpaidWorkingDates.push(d.dayNumber);
+          if (isOverdue) {
+            overdueDates.push(d.dayNumber);
+          }
         }
       }
 
       branchTotalPaid += amount;
 
-      let status = 'UNPAID';
-      if (d.isHoliday) {
-        status = 'HOLIDAY';
-      } else if (isPaid) {
-        status = amount >= branch.daily_deposit ? 'PAID' : 'PARTIAL';
-      }
-
       return {
         dayNumber: d.dayNumber,
         dateStr: d.dateStr,
-        isHoliday: d.isHoliday,
+        dayOfWeek: d.dayOfWeek,
+        isHoliday,
+        isSuspended,
+        suspensionInfo,
+        isSpecialClosed,
+        specialDay,
         isPaid,
+        isOverdue,
         amount,
         payment,
         status,
-        cycleNumber: d.cycleInfo.cycleNumber
+        note,
+        hasNote
       };
     });
 
     const totalBilling = branch.daily_deposit * branchWorkingDaysBilled;
     const remainingAmount = Math.max(0, totalBilling - branchTotalPaid);
-    const isLunas = branchTotalPaid >= totalBilling && totalBilling > 0;
+    const isLunas = branchWorkingDaysBilled > 0 ? (branchTotalPaid >= totalBilling) : true;
 
     return {
       branch,
@@ -427,10 +773,12 @@ export async function getFullMonthMatrixData(year, month) {
       workingDaysCount: branchWorkingDaysBilled,
       paidWorkingDaysCount,
       unpaidWorkingDates,
+      overdueDates,
       totalBilling,
       totalPaid: branchTotalPaid,
       remainingAmount,
-      isLunas
+      isLunas,
+      isCurrentlySuspended: Boolean(isBranchSuspendedOnDate(branch, todayStr))
     };
   });
 
@@ -446,7 +794,13 @@ export async function getFullMonthMatrixData(year, month) {
     month,
     daysInMonth,
     daysList,
-    cyclesList: Object.values(cyclesMap).sort((a, b) => a.cycleNumber - b.cycleNumber),
+    cyclesList: [{
+      cycleNumber: 1,
+      label: '1 Bulan Penuh',
+      cycleStartDate: daysList[0]?.dateStr,
+      cycleEndDate: daysList[daysList.length - 1]?.dateStr,
+      days: daysList.map(d => d.dayNumber)
+    }],
     holidayConfig,
     stats: {
       totalDays: daysInMonth,
@@ -470,35 +824,20 @@ export async function getFullMonthMatrixData(year, month) {
 export async function getCompleteRecapData(year, month, periodIndex = 1) {
   const matrix = await getFullMonthMatrixData(year, month);
   const periods = generatePeriodsForMonth(year, month);
-  const currentPeriod = periods.find(p => p.period_index === periodIndex) || periods[0];
+  const currentPeriod = periods[0];
 
-  const branchRecaps = matrix.branchMatrix.map(b => {
-    // Filter hari dalam periode terpilih
-    const periodEntries = b.dailyEntries.filter(e => e.dayNumber >= currentPeriod.start_day && e.dayNumber <= currentPeriod.end_day);
-    const activeDays = periodEntries.filter(e => !e.isHoliday).length;
-    const totalBilling = b.branch.daily_deposit * activeDays;
-    const totalPaid = periodEntries.reduce((sum, e) => sum + e.amount, 0);
-    const remainingAmount = Math.max(0, totalBilling - totalPaid);
-    const isLunas = totalPaid >= totalBilling && totalBilling > 0;
-
-    return {
-      branch: b.branch,
-      activeDays,
-      dailyDeposit: b.branch.daily_deposit,
-      totalBilling,
-      totalPaid,
-      remainingAmount,
-      isLunas,
-      status: isLunas ? 'LUNAS' : (totalPaid > 0 ? 'SEBAGIAN' : 'BELUM_BAYAR'),
-      payments: periodEntries.filter(e => e.payment).map(e => e.payment)
-    };
-  });
-
-  const totalBilled = branchRecaps.reduce((sum, r) => sum + r.totalBilling, 0);
-  const totalPaid = branchRecaps.reduce((sum, r) => sum + r.totalPaid, 0);
-  const totalRemaining = branchRecaps.reduce((sum, r) => sum + r.remainingAmount, 0);
-  const lunasCount = branchRecaps.filter(r => r.isLunas).length;
-  const paymentPercentage = totalBilled > 0 ? Math.round((totalPaid / totalBilled) * 100) : 0;
+  const branchRecaps = matrix.branchMatrix.map(b => ({
+    branch: b.branch,
+    activeDays: b.workingDaysCount,
+    dailyDeposit: b.branch.daily_deposit,
+    totalBilling: b.totalBilling,
+    totalPaid: b.totalPaid,
+    remainingAmount: b.remainingAmount,
+    isLunas: b.isLunas,
+    status: b.isLunas ? 'LUNAS' : (b.totalPaid > 0 ? 'SEBAGIAN' : 'BELUM_BAYAR'),
+    payments: b.dailyEntries.filter(e => e.payment).map(e => e.payment),
+    overdueDaysCount: b.overdueDates?.length || 0
+  }));
 
   return {
     year,
@@ -507,20 +846,12 @@ export async function getCompleteRecapData(year, month, periodIndex = 1) {
     periods,
     config: matrix.holidayConfig,
     dayStats: {
-      totalCalendarDays: currentPeriod.total_calendar_days,
+      totalCalendarDays: matrix.daysInMonth,
       activeDays: matrix.stats.workingDays,
       holidaysCount: matrix.stats.holidays
     },
     branchRecaps,
-    kpi: {
-      totalBranches: matrix.branchMatrix.length,
-      totalBilled,
-      totalPaid,
-      totalRemaining,
-      lunasCount,
-      kurangBayarCount: matrix.branchMatrix.length - lunasCount,
-      paymentPercentage
-    }
+    kpi: matrix.kpi
   };
 }
 

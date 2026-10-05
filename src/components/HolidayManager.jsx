@@ -105,13 +105,11 @@ export default function HolidayManager({
   }
   for (let day = 1; day <= daysInMonth; day++) {
     const isHoliday = checkIsHoliday(day);
-    const inActivePeriod = day >= period.start_day && day <= period.end_day;
     const isToday = isLiveMonth && day === liveTodayDate;
     calendarCells.push({
       type: 'day',
       dayNumber: day,
       isHoliday,
-      inActivePeriod,
       isToday,
       key: `day-${day}`
     });
@@ -147,7 +145,14 @@ export default function HolidayManager({
                 : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
             }`}
           >
-            {isAllSundaysHoliday ? '✓ Semua Minggu Libur' : '+ Libur Setiap Minggu'}
+            {isAllSundaysHoliday ? (
+              <span className="inline-flex items-center">
+                <Check className="w-3.5 h-3.5 mr-1 stroke-[3]" />
+                Semua Minggu Libur
+              </span>
+            ) : (
+              '+ Libur Setiap Minggu'
+            )}
           </button>
 
           <div className="px-3 py-1 rounded-lg bg-blue-50 text-blue-700 font-semibold border border-blue-100">
@@ -179,7 +184,7 @@ export default function HolidayManager({
               return <div key={cell.key} className="h-9 sm:h-10" />;
             }
 
-            const { dayNumber, isHoliday, inActivePeriod, isToday } = cell;
+            const { dayNumber, isHoliday, isToday } = cell;
 
             return (
               <button
@@ -192,9 +197,7 @@ export default function HolidayManager({
                 } ${
                   isHoliday
                     ? 'bg-red-500 text-white font-bold shadow-sm'
-                    : inActivePeriod
-                    ? 'bg-white hover:bg-blue-50 text-slate-800 border border-slate-200 hover:border-blue-300'
-                    : 'bg-slate-50 text-slate-400 border border-transparent'
+                    : 'bg-white hover:bg-blue-50 text-slate-800 border border-slate-200 hover:border-blue-300'
                 }`}
               >
                 <span>{dayNumber}</span>
@@ -202,9 +205,6 @@ export default function HolidayManager({
                   <span className="text-[7px] uppercase font-black tracking-tighter text-blue-600 -mt-0.5">
                     Hari Ini
                   </span>
-                )}
-                {inActivePeriod && !isHoliday && !isToday && (
-                  <span className="w-1 h-1 rounded-full bg-blue-600 mt-0.5" />
                 )}
                 {isHoliday && !isToday && (
                   <span className="text-[8px] leading-none opacity-90">Libur</span>
@@ -223,10 +223,6 @@ export default function HolidayManager({
           <span className="flex items-center space-x-1.5">
             <span className="w-3 h-3 rounded bg-red-500 inline-block"></span>
             <span>Hari Libur (Ditiadakan)</span>
-          </span>
-          <span className="flex items-center space-x-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-600 inline-block"></span>
-            <span>14 Hari Periode Ini</span>
           </span>
         </div>
       </div>

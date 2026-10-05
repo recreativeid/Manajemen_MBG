@@ -7,19 +7,16 @@ import {
   DollarSign, CheckCircle, AlertCircle, TrendingUp, Send, ArrowRight
 } from 'lucide-react';
 import StatCard from '../components/StatCard';
-import { formatRupiah, MONTH_NAMES, generateMonthSequence } from '../lib/initialData';
+import { formatRupiah, MONTH_NAMES, AVAILABLE_YEARS } from '../lib/initialData';
 import { buildWaMessage, getWaUrl } from '../lib/waHelper';
-
-const MONTH_SEQUENCE = generateMonthSequence(2026, 10, 18);
 
 export default function DashboardPage({
   recapData,
   selectedYear,
   selectedMonth,
-  selectedPeriodIndex,
   onSelectMonth,
+  onSelectYear,
   onSelectMonthAndYear,
-  onSelectPeriod,
   onNavigateToRecap,
   onOpenPaymentModal
 }) {
@@ -31,7 +28,7 @@ export default function DashboardPage({
     );
   }
 
-  const { period, periods, kpi, branchRecaps, dayStats } = recapData;
+  const { kpi, branchRecaps, dayStats } = recapData;
   const monthName = MONTH_NAMES[selectedMonth - 1];
 
   const chartData = branchRecaps.map(r => ({
@@ -52,7 +49,6 @@ export default function DashboardPage({
   const handleQuickWa = (r) => {
     const msg = buildWaMessage({
       branchName: r.branch.name,
-      periodName: period.title,
       monthName,
       year: selectedYear,
       dailyDeposit: r.dailyDeposit,
@@ -80,39 +76,46 @@ export default function DashboardPage({
             Dashboard Setoran MBG
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Monitoring kewajiban setoran dan perbandingan status pelunasan cabang
+            Monitoring kewajiban setoran dan perbandingan status pelunasan cabang 1 bulan penuh
           </p>
         </div>
 
-        {/* Filter Bulan & Periode Ringkas (Tahun Otomatis) */}
+        {/* Filter Bulan & Tahun Bebas */}
         <div className="flex flex-wrap items-center gap-2">
           <select
-            value={`${selectedYear}-${selectedMonth}`}
+            value={selectedMonth}
             onChange={(e) => {
-              const [y, m] = e.target.value.split('-').map(Number);
+              const m = Number(e.target.value);
               if (onSelectMonthAndYear) {
-                onSelectMonthAndYear(m, y);
+                onSelectMonthAndYear(m, selectedYear);
               } else {
                 onSelectMonth(m);
               }
             }}
             className="bg-white text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            {MONTH_SEQUENCE.map((item) => (
-              <option key={`${item.year}-${item.month}`} value={`${item.year}-${item.month}`}>
-                {item.monthName} {item.year}
+            {MONTH_NAMES.map((mName, idx) => (
+              <option key={idx + 1} value={idx + 1}>
+                {mName}
               </option>
             ))}
           </select>
 
           <select
-            value={selectedPeriodIndex}
-            onChange={(e) => onSelectPeriod(Number(e.target.value))}
+            value={selectedYear}
+            onChange={(e) => {
+              const y = Number(e.target.value);
+              if (onSelectMonthAndYear) {
+                onSelectMonthAndYear(selectedMonth, y);
+              } else {
+                onSelectYear(y);
+              }
+            }}
             className="bg-white text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            {periods.map((p) => (
-              <option key={p.period_index} value={p.period_index}>
-                {p.title}
+            {AVAILABLE_YEARS.map((y) => (
+              <option key={y} value={y}>
+                {y}
               </option>
             ))}
           </select>
@@ -157,7 +160,7 @@ export default function DashboardPage({
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-sm font-bold text-slate-900">
-                Grafik Setoran Per Cabang
+                Grafik Setoran Per Cabang ({monthName} {selectedYear})
               </h2>
               <p className="text-xs text-slate-500">
                 Sudah Bayar (Biru) vs Kurang Bayar (Merah)
@@ -283,11 +286,11 @@ export default function DashboardPage({
 
       </div>
 
-      {/* Ringkasan Status Tiap Cabang Minimalis */}
+      {/* Ringkasan Status Tiap Cabang */}
       <div className="bg-white rounded-xl p-4 sm:p-5 border border-slate-200">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold text-slate-900">
-            Rincian Status Cabang MBG
+            Rincian Status Cabang MBG ({monthName} {selectedYear})
           </h2>
           <button
             onClick={onNavigateToRecap}

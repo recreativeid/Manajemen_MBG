@@ -14,11 +14,21 @@ import {
   saveMonthHolidayConfig, 
   toggleDailyPayment,
   saveDailyPaymentRecord,
+  saveBranchSpecialDay,
+  deleteBranchSpecialDay,
+  saveBranchSuspension,
   quickFillWorkingDaysForBranch,
+  setBranchDateColor,
+  saveDateNote,
   addPayment, 
   deletePayment, 
   saveBranch, 
-  deleteBranch 
+  deleteBranch,
+  getDeletedBranches,
+  restoreBranch,
+  restoreDefaultBranches,
+  permanentDeleteBranch,
+  saveBranchNotes
 } from './lib/storageService';
 import { checkIsLoggedIn, getAdminSession, logoutAdmin } from './lib/authService';
 import { MONTH_NAMES } from './lib/initialData';
@@ -31,15 +41,14 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState('recap'); // Kelola Rekap Pembayaran langsung terbuka
 
-  // Default otomatis mengikuti hari & tanggal real-time saat ini (dimulai minimal Oktober 2026 sebagai Periode 1)
+  // Default otomatis mengikuti hari & tanggal real-time saat ini
   const realDate = new Date();
-  const isBeforeStart = realDate.getFullYear() < 2026 || (realDate.getFullYear() === 2026 && (realDate.getMonth() + 1) < 10);
-  const [selectedYear, setSelectedYear] = useState(isBeforeStart ? 2026 : realDate.getFullYear());
-  const [selectedMonth, setSelectedMonth] = useState(isBeforeStart ? 10 : (realDate.getMonth() + 1));
-  const [selectedPeriodIndex, setSelectedPeriodIndex] = useState(1);
+  const [selectedYear, setSelectedYear] = useState(realDate.getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState(realDate.getMonth() + 1);
   
   const [monthMatrixData, setMonthMatrixData] = useState(null);
   const [recapData, setRecapData] = useState(null);
+  const [deletedBranches, setDeletedBranches] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Modals Cabang & Pembayaran
@@ -57,12 +66,14 @@ export default function App() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [matrix, recap] = await Promise.all([
+      const [matrix, recap, deleted] = await Promise.all([
         getFullMonthMatrixData(selectedYear, selectedMonth),
-        getCompleteRecapData(selectedYear, selectedMonth, selectedPeriodIndex)
+        getCompleteRecapData(selectedYear, selectedMonth),
+        getDeletedBranches()
       ]);
       setMonthMatrixData(matrix);
       setRecapData(recap);
+      setDeletedBranches(deleted || []);
     } catch (err) {
       console.error('Failed to load data:', err);
     } finally {
@@ -74,7 +85,7 @@ export default function App() {
     if (isAuthenticated) {
       fetchData();
     }
-  }, [selectedYear, selectedMonth, selectedPeriodIndex, isAuthenticated]);
+  }, [selectedYear, selectedMonth, isAuthenticated]);
 
   // Handle Login & Logout
   const handleLoginSuccess = (session) => {
@@ -88,7 +99,7 @@ export default function App() {
     setAdminSession(null);
   };
 
-  // Handle Pemilihan Bulan & Tahun Bersamaan (misal: Januari langsung 2027)
+  // Handle Pemilihan Bulan & Tahun Bersamaan
   const handleSelectMonthAndYear = (month, year) => {
     setSelectedMonth(month);
     if (year) {
@@ -114,9 +125,38 @@ export default function App() {
     await fetchData();
   };
 
+  // Handle Save Tanda Khusus Cabang (Warna Ungu: Tutup 1 Hari / Bencana / Libur Cabang)
+  const handleSaveBranchSpecialDay = async (payload) => {
+    await saveBranchSpecialDay(payload);
+    await fetchData();
+  };
+
+  const handleDeleteBranchSpecialDay = async (payload) => {
+    await deleteBranchSpecialDay(payload);
+    await fetchData();
+  };
+
+  // Handle Save Suspend Cabang (Warna Biru Tua: Rentang Tanggal atau Selamanya)
+  const handleSaveBranchSuspension = async (payload) => {
+    await saveBranchSuspension(payload);
+    await fetchData();
+  };
+
   // Handle Quick Fill All Working Days for a Branch
   const handleQuickFillBranch = async (branchId, dates, dailyDeposit) => {
     await quickFillWorkingDaysForBranch(branchId, dates, dailyDeposit);
+    await fetchData();
+  };
+
+  // Handle Fitur Tandai Tanggal (Biru, Kuning, Ungu, Biru Tua, Reset)
+  const handleSetBranchDateColor = async ({ branchId, dateStr, colorMode, dailyDeposit }) => {
+    await setBranchDateColor({ branchId, dateStr, colorMode, dailyDeposit });
+    await fetchData();
+  };
+
+  // Handle Tambah / Edit / Hapus Catatan Tanggal
+  const handleSaveDateNote = async ({ branchId, dateStr, note }) => {
+    await saveDateNote({ branchId, dateStr, note });
     await fetchData();
   };
 
@@ -183,6 +223,30 @@ export default function App() {
     setIsPaymentModalOpen(true);
   };
 
+  // Handle Restore Cabang yang Terhapus
+  const handleRestoreBranch = async (branchId) => {
+    await restoreBranch(branchId);
+    await fetchData();
+  };
+
+  // Handle Restore Seluruh Cabang Default MBG Magelang
+  const handleRestoreDefaultBranches = async () => {
+    await restoreDefaultBranches();
+    await fetchData();
+  };
+
+  // Handle Hapus Permanen dari Riwayat Sampah
+  const handlePermanentDeleteBranch = async (branchId) => {
+    await permanentDeleteBranch(branchId);
+    await fetchData();
+  };
+
+  // Handle Simpan Catatan Khusus Cabang
+  const handleSaveBranchNotes = async ({ branchId, notes }) => {
+    await saveBranchNotes({ branchId, notes });
+    await fetchData();
+  };
+
   // Jika belum login, tampilkan layar login admin
   if (!isAuthenticated) {
     return <LoginPage onLoginSuccess={handleLoginSuccess} />;
@@ -207,10 +271,9 @@ export default function App() {
             recapData={recapData}
             selectedYear={selectedYear}
             selectedMonth={selectedMonth}
-            selectedPeriodIndex={selectedPeriodIndex}
             onSelectMonth={setSelectedMonth}
+            onSelectYear={setSelectedYear}
             onSelectMonthAndYear={handleSelectMonthAndYear}
-            onSelectPeriod={setSelectedPeriodIndex}
             onNavigateToRecap={() => setActiveTab('recap')}
             onOpenPaymentModal={handleOpenPaymentModal}
           />
@@ -225,6 +288,12 @@ export default function App() {
             onOpenAddBranch={handleOpenAddBranch}
             onOpenEditBranch={handleOpenEditBranch}
             onRequestDeleteBranch={handleRequestDeleteBranch}
+            onSaveBranchSuspension={handleSaveBranchSuspension}
+            deletedBranches={deletedBranches}
+            onRestoreBranch={handleRestoreBranch}
+            onRestoreDefaultBranches={handleRestoreDefaultBranches}
+            onPermanentDeleteBranch={handlePermanentDeleteBranch}
+            onSaveBranchNotes={handleSaveBranchNotes}
           />
         ) : (
           <RecapPage
@@ -237,7 +306,12 @@ export default function App() {
             onUpdatePeriodConfig={handleUpdatePeriodConfig}
             onToggleDailyPayment={handleToggleDailyPayment}
             onSaveDailyPayment={handleSaveDailyPayment}
+            onSaveBranchSpecialDay={handleSaveBranchSpecialDay}
+            onDeleteBranchSpecialDay={handleDeleteBranchSpecialDay}
+            onSaveBranchSuspension={handleSaveBranchSuspension}
             onQuickFillBranch={handleQuickFillBranch}
+            onSetBranchDateColor={handleSetBranchDateColor}
+            onSaveDateNote={handleSaveDateNote}
             onOpenEditBranch={handleOpenEditBranch}
             onOpenAddBranch={handleOpenAddBranch}
           />
@@ -247,7 +321,7 @@ export default function App() {
       {/* Footer Minimalis */}
       <footer className="border-t border-slate-100 py-3 text-center text-xs text-slate-400">
         <div className="max-w-7xl mx-auto px-4">
-          <p>© {selectedYear} Badan Gizi Nasional • MBG Magelang • Rekapan Harian 1 Bulan & Siklus 14 Hari Berkelanjutan</p>
+          <p>© {selectedYear} Badan Gizi Nasional • MBG Magelang • Rekapan Harian 1 Bulan Penuh</p>
         </div>
       </footer>
 
@@ -275,7 +349,7 @@ export default function App() {
         isLoading={isDeletingBranch}
       />
 
-      {/* Modal Pembayaran Periode */}
+      {/* Modal Pembayaran */}
       <PaymentModal
         isOpen={isPaymentModalOpen}
         onClose={() => {
@@ -283,7 +357,7 @@ export default function App() {
           setSelectedBranchRecapForPayment(null);
         }}
         branchRecap={selectedBranchRecapForPayment}
-        period={recapData?.period || { title: '', period_index: selectedPeriodIndex }}
+        period={recapData?.period || { title: `1 Bulan Penuh`, period_index: 1 }}
         monthName={MONTH_NAMES[selectedMonth - 1]}
         year={selectedYear}
         onAddPayment={handleAddPayment}

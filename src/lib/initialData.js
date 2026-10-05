@@ -71,44 +71,64 @@ export function formatRupiah(amount) {
   }).format(amount || 0);
 }
 
+export const AVAILABLE_YEARS = [2023, 2024, 2025, 2026, 2027, 2028, 2029, 2030];
+
+export const STATUS_TYPES = {
+  PAID: {
+    key: 'PAID',
+    label: 'Sudah Setor',
+    bgClass: 'bg-blue-600 hover:bg-blue-700 text-white shadow-sm',
+    badgeClass: 'bg-blue-50 text-blue-700 border-blue-200'
+  },
+  OVERDUE: {
+    key: 'OVERDUE',
+    label: 'Belum Bayar',
+    bgClass: 'bg-amber-400 hover:bg-amber-500 text-slate-900 border border-amber-500 font-bold shadow-sm',
+    badgeClass: 'bg-amber-100 text-amber-900 border-amber-300'
+  },
+  SUSPENDED: {
+    key: 'SUSPENDED',
+    label: 'Cabang Suspend (Biru Tua)',
+    bgClass: 'bg-blue-900 hover:bg-blue-800 text-white border border-blue-800 font-bold shadow-sm',
+    badgeClass: 'bg-blue-900 text-white border-blue-800'
+  },
+  SPECIAL_CLOSED: {
+    key: 'SPECIAL_CLOSED',
+    label: 'Agenda khusus (Ungu)',
+    bgClass: 'bg-purple-600 hover:bg-purple-700 text-white border border-purple-700 font-bold shadow-sm',
+    badgeClass: 'bg-purple-100 text-purple-800 border-purple-300'
+  },
+  HOLIDAY: {
+    key: 'HOLIDAY',
+    label: 'Libur Umum',
+    bgClass: 'bg-red-100 text-red-700 hover:bg-red-200 border border-red-200 font-bold',
+    badgeClass: 'bg-red-100 text-red-700 border-red-200'
+  },
+  UPCOMING: {
+    key: 'UPCOMING',
+    label: 'Mendatang',
+    bgClass: 'bg-white hover:bg-slate-100 text-slate-400 border border-slate-200 hover:border-blue-400',
+    badgeClass: 'bg-slate-100 text-slate-600 border-slate-200'
+  }
+};
+
 export function generatePeriodsForMonth(year, month) {
   const daysInMonth = new Date(year, month, 0).getDate();
   
-  const periods = [
+  return [
     {
       period_index: 1,
-      title: 'Periode 1 (Tgl 1 - 14)',
-      shortTitle: 'Tgl 1 - 14',
+      title: `1 Bulan Penuh (${daysInMonth} Hari)`,
+      shortTitle: `1 - ${daysInMonth}`,
       start_day: 1,
-      end_day: 14,
-      total_calendar_days: 14
-    },
-    {
-      period_index: 2,
-      title: 'Periode 2 (Tgl 15 - 28)',
-      shortTitle: 'Tgl 15 - 28',
-      start_day: 15,
-      end_day: 28,
-      total_calendar_days: 14
+      end_day: daysInMonth,
+      total_calendar_days: daysInMonth
     }
   ];
-
-  if (daysInMonth > 28) {
-    periods.push({
-      period_index: 3,
-      title: `Periode 3 (Tgl 29 - ${daysInMonth})`,
-      shortTitle: `Tgl 29 - ${daysInMonth}`,
-      start_day: 29,
-      end_day: daysInMonth,
-      total_calendar_days: daysInMonth - 28
-    });
-  }
-
-  return periods;
 }
 
-// Generator sekuens bulan berurutan otomatis (Mulai Oktober 2026 sebagai Periode 1 -> Januari 2027 otomatis)
-export function generateMonthSequence(startYear = 2026, startMonth = 10, count = 18) {
+// Generator sekuens bulan fleksibel untuk navigasi (bisa tahun berapapun)
+export function generateMonthSequence(startYear = new Date().getFullYear(), startMonth = 1, count = 12) {
   const sequence = [];
   let y = startYear;
   let m = startMonth;

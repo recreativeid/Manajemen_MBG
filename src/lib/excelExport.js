@@ -3,37 +3,25 @@ import { MONTH_NAMES, SHORT_DAY_NAMES } from './initialData';
 
 /**
  * Ekspor Rekapan MBG ke format file Microsoft Excel (.xlsx)
- * Mendukung ekspor 1 Bulan Penuh (30/31 hari) maupun Per Periode (14 hari)
- * dengan susunan kolom yang sama persis dengan tabel antarmuka.
+ * Satu layer 1 Bulan Penuh (Tgl 1 s/d Akhir Bulan) dengan susunan kolom sama persis dengan tabel.
  */
 export function exportRecapToExcel({
   monthMatrixData,
   selectedYear,
-  selectedMonth,
-  cycleFilter = 'ALL'
+  selectedMonth
 }) {
   if (!monthMatrixData) return;
 
-  const { daysList, cyclesList, branchMatrix, stats } = monthMatrixData;
+  const { daysList, branchMatrix, stats } = monthMatrixData;
   const monthName = MONTH_NAMES[selectedMonth - 1];
-
-  // Tentukan hari yang diekspor sesuai filter (1 Bulan Penuh atau Per Periode)
-  const isAll = cycleFilter === 'ALL';
-  const targetDays = isAll
-    ? daysList
-    : daysList.filter(d => d.cycleInfo.cycleNumber === Number(cycleFilter));
-
-  const activeCycleObj = cyclesList.find(c => String(c.cycleNumber) === String(cycleFilter));
-  const filterLabel = isAll
-    ? `1 Bulan Penuh (${daysList.length} Hari)`
-    : `Periode ${cycleFilter} (${activeCycleObj ? activeCycleObj.label : ''})`;
+  const targetDays = daysList;
 
   // 1. Bangun Baris Data Excel (Array of Arrays)
   const rows = [];
 
   // Judul & Metadata Laporan
   rows.push(['BADAN GIZI NASIONAL - REKAPAN PEMBAYARAN MBG WILAYAH MAGELANG']);
-  rows.push([`Bulan: ${monthName} ${selectedYear} | Tampilan: ${filterLabel}`]);
+  rows.push([`Bulan: ${monthName} ${selectedYear} | Tampilan: 1 Bulan Penuh (${daysList.length} Hari)`]);
   rows.push([`Waktu Unduh: ${new Date().toLocaleString('id-ID')}`]);
   rows.push([]); // Baris kosong
 
@@ -48,14 +36,13 @@ export function exportRecapToExcel({
 
   // Header Tanggal
   targetDays.forEach(d => {
-    const isSun = d.dayOfWeek === 0;
     const dayStatus = d.isHoliday ? ' (Libur)' : '';
     headerRow1.push(`Tgl ${d.dayNumber} [${SHORT_DAY_NAMES[d.dayOfWeek]}${dayStatus}]`);
   });
 
   // Header Total & Status
   headerRow1.push(
-    'Total Hari Aktif',
+    'Total Hari Wajib Setor',
     'Hari Sudah Setor',
     'Total Tagihan (Rp)',
     'Total Disetor (Rp)',
@@ -71,11 +58,6 @@ export function exportRecapToExcel({
   let grandTotalRemaining = 0;
 
   branchMatrix.forEach((b, index) => {
-    // Hitung statistik untuk targetDays yang sedang difilter
-    let branchPaidInView = 0;
-    let branchWorkingDaysInView = 0;
-    let branchPaidDaysInView = 0;
-
     const rowData = [
       index + 1,
       b.branch.name,
@@ -87,36 +69,33 @@ export function exportRecapToExcel({
     // Kolom per hari
     targetDays.forEach(d => {
       const entry = b.dailyEntries.find(e => e.dayNumber === d.dayNumber);
-      if (d.isHoliday) {
+      if (entry?.isHoliday) {
         rowData.push('LIBUR');
+      } else if (entry?.isSuspended) {
+        rowData.push('SUSPEND');
+      } else if (entry?.isSpecialClosed) {
+        rowData.push(`KHUSUS (${entry.specialDay?.reason || 'TUTUP/BENCANA'})`);
+      } else if (entry?.isPaid) {
+        rowData.push(Number(entry.amount || b.branch.daily_deposit));
+      } else if (entry?.isOverdue) {
+        rowData.push('BELUM SETOR');
       } else {
-        branchWorkingDaysInView++;
-        if (entry?.isPaid) {
-          branchPaidInView += Number(entry.amount || b.branch.daily_deposit);
-          branchPaidDaysInView++;
-          rowData.push(Number(entry.amount || b.branch.daily_deposit));
-        } else {
-          rowData.push(0); // Belum setor
-        }
+        rowData.push('-'); // Mendatang
       }
     });
 
-    const branchBillingInView = branchWorkingDaysInView * b.branch.daily_deposit;
-    const branchRemainingInView = Math.max(0, branchBillingInView - branchPaidInView);
-    const isLunasInView = branchRemainingInView === 0;
-
-    grandTotalBilling += branchBillingInView;
-    grandTotalPaid += branchPaidInView;
-    grandTotalRemaining += branchRemainingInView;
+    grandTotalBilling += b.totalBilling;
+    grandTotalPaid += b.totalPaid;
+    grandTotalRemaining += b.remainingAmount;
 
     // Kolom Ringkasan
     rowData.push(
-      branchWorkingDaysInView,
-      branchPaidDaysInView,
-      branchBillingInView,
-      branchPaidInView,
-      branchRemainingInView,
-      isLunasInView ? 'LUNAS' : 'KURANG BAYAR'
+      b.workingDaysCount,
+      b.paidWorkingDaysCount,
+      b.totalBilling,
+      b.totalPaid,
+      b.remainingAmount,
+      b.isLunas ? 'LUNAS' : 'KURANG BAYAR'
     );
 
     rows.push(rowData);
@@ -131,13 +110,12 @@ export function exportRecapToExcel({
     ''
   ];
 
-  // Kosongkan kolom hari pada baris total
   targetDays.forEach(() => {
     totalRow.push('');
   });
 
   totalRow.push(
-    '',
+    stats.workingDays,
     '',
     grandTotalBilling,
     grandTotalPaid,
@@ -150,11 +128,10 @@ export function exportRecapToExcel({
   // 4. Buat Worksheet & Workbook
   const worksheet = XLSX.utils.aoa_to_sheet(rows);
 
-  // Atur Lebar Kolom (Auto Column Widths)
   const colWidths = [
     { wch: 5 },  // No
     { wch: 28 }, // Nama Cabang
-    { wch: 18 }, // PIC
+    { wch: 25 }, // Alamat
     { wch: 16 }, // No WA
     { wch: 18 }  // Tarif Harian
   ];
@@ -164,7 +141,7 @@ export function exportRecapToExcel({
   });
 
   colWidths.push(
-    { wch: 16 }, // Total Hari Aktif
+    { wch: 20 }, // Total Hari Wajib Setor
     { wch: 16 }, // Hari Sudah Setor
     { wch: 20 }, // Total Tagihan
     { wch: 20 }, // Total Disetor
@@ -174,19 +151,13 @@ export function exportRecapToExcel({
 
   worksheet['!cols'] = colWidths;
 
-  // Nama Sheet (Maksimal 31 karakter di Excel)
-  const sheetName = isAll
-    ? `Rekap ${monthName.slice(0, 3)} ${selectedYear}`
-    : `Periode ${cycleFilter} ${monthName.slice(0, 3)}`;
-
+  const sheetName = `Rekap ${monthName.slice(0, 3)} ${selectedYear}`;
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
 
   // 5. Nama File Excel
   const safeMonth = monthName.replace(/\s+/g, '_');
-  const safeFilter = isAll ? '1_Bulan_Penuh' : `Periode_${cycleFilter}`;
-  const fileName = `Rekap_MBG_Magelang_${safeMonth}_${selectedYear}_${safeFilter}.xlsx`;
+  const fileName = `Rekap_MBG_Magelang_${safeMonth}_${selectedYear}.xlsx`;
 
-  // Tulis dan unduh otomatis di browser
   XLSX.writeFile(workbook, fileName);
 }

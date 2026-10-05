@@ -25,44 +25,44 @@ export function buildWaMessage({
 }) {
   if (isLunas) {
     return (
-`*LAPORAN SETORAN MBG - LUNAS* ✅
+`*LAPORAN SETORAN MBG - LUNAS*
 Kabupaten / Kota Magelang
 
 Halo Yth. Pengelola Cabang *${branchName}*,
 
 Terima kasih atas kerja samanya. Pembayaran setoran Makan Bergizi Gratis (MBG) untuk:
-📅 *Bulan:* ${monthName} ${year}
-💼 *Total Hari Kerja Wajib:* ${activeDays} hari
-💰 *Tarif Setoran Harian:* ${formatRupiah(dailyDeposit)}/hari
-📊 *Total Kewajiban:* ${formatRupiah(totalBilling)}
-💵 *Sudah Disetor:* ${formatRupiah(totalPaid)}
+• *Bulan:* ${monthName} ${year}
+• *Total Hari Kerja Wajib:* ${activeDays} hari
+• *Tarif Setoran Harian:* ${formatRupiah(dailyDeposit)}/hari
+• *Total Kewajiban:* ${formatRupiah(totalBilling)}
+• *Sudah Disetor:* ${formatRupiah(totalPaid)}
 
-✨ *STATUS: LUNAS* ✨
-Seluruh setoran hari kerja telah terisi penuh. Terima kasih banyak! 🙏`
+*STATUS: LUNAS*
+Seluruh setoran hari kerja telah terisi penuh. Terima kasih banyak!`
     );
   }
 
   const unpaidDatesText = unpaidDates.length > 0 
-    ? `\n⚠️ *Tanggal Belum Menyetor (${unpaidDates.length} Hari):*\n👉 Tanggal: ${unpaidDates.map(d => `Tgl ${d}`).join(', ')}`
+    ? `\n*Tanggal Belum Menyetor (${unpaidDates.length} Hari):*\n• Tanggal: ${unpaidDates.map(d => `Tgl ${d}`).join(', ')}`
     : '';
 
   return (
-`*PEMBERITAHUAN SETORAN MBG* ⚠️
+`*PEMBERITAHUAN SETORAN MBG*
 Kabupaten / Kota Magelang
 
 Halo Yth. Pengelola Cabang *${branchName}*,
 
 Berikut adalah Rekapan Pembayaran Setoran MBG:
-📅 *Bulan:* ${monthName} ${year}
-💼 *Hari Kerja Wajib:* ${activeDays} hari (hari libur tidak dihitung)
-💰 *Tarif Setoran Harian:* ${formatRupiah(dailyDeposit)}/hari
-📊 *Total Kewajiban:* ${formatRupiah(totalBilling)}
-💵 *Sudah Disetor:* ${formatRupiah(totalPaid)}
-🔴 *Sisa Kurang Bayar:* ${formatRupiah(remainingAmount)}${unpaidDatesText}
+• *Bulan:* ${monthName} ${year}
+• *Hari Kerja Wajib:* ${activeDays} hari (hari libur tidak dihitung)
+• *Tarif Setoran Harian:* ${formatRupiah(dailyDeposit)}/hari
+• *Total Kewajiban:* ${formatRupiah(totalBilling)}
+• *Sudah Disetor:* ${formatRupiah(totalPaid)}
+• *Sisa Kurang Bayar:* ${formatRupiah(remainingAmount)}${unpaidDatesText}
 
 Mohon bantuannya untuk segera melakukan penyetoran dan konfirmasi pelunasan untuk tanggal-tanggal yang belum terisi di atas.
 
-Terima kasih atas perhatian dan kerja samanya. 🙏`
+Terima kasih atas perhatian dan kerja samanya.`
   );
 }
 

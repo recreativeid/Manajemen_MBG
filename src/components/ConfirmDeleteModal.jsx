@@ -47,8 +47,9 @@ export default function ConfirmDeleteModal({
           </p>
         </div>
 
-        <p className="text-xs text-slate-500 mt-3 leading-relaxed">
-          ⚠️ <span className="font-semibold text-slate-700">Perhatian:</span> Tindakan ini bersifat permanen. Seluruh data rekap setoran harian dan konfigurasi cabang ini akan dihapus dari sistem.
+        <p className="text-xs text-slate-500 mt-3 leading-relaxed flex items-start">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 mr-1.5 shrink-0 mt-0.5" />
+          <span><strong className="font-semibold text-slate-700">Perhatian:</strong> Tindakan ini bersifat permanen. Seluruh data rekap setoran harian dan konfigurasi cabang ini akan dihapus dari sistem.</span>
         </p>
 
         {/* Tombol Aksi Persetujuan */}
